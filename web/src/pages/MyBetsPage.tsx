@@ -22,7 +22,7 @@ export function MyBetsPage() {
 
   return (
     <div className="page data-page">
-      <header className="page-title"><div><h1>My Bets</h1><p>只记录真实购买；系统推荐和 Paper Bet 不计入实际盈亏。</p></div><span>累计实际投入 ¥{total}</span></header>
+      <header className="page-title"><div><h1>我的投注</h1><p>只记录真实购买；系统推荐和前向虚拟投注不计入实际盈亏。</p></div><span>累计实际投入 ¥{total}</span></header>
       <div className="bets-layout">
         <form className="bet-form" onSubmit={addBet}>
           <h2>记录实际投注</h2>
@@ -37,4 +37,3 @@ export function MyBetsPage() {
     </div>
   )
 }
-
