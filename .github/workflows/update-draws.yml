@@ -1,0 +1,34 @@
+name: Update Draws
+
+on:
+  schedule:
+    - cron: '30 14 * * 1,3,6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-draws
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e .
+      - run: python scripts/update_draws.py
+      - run: python scripts/validate_data.py
+      - run: python scripts/build_web_data.py
+      - name: Commit verified data only
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add data/daletou.db data/raw web/public/data/app-data.json
+          git diff --cached --quiet || git commit -m "data: update verified official draws"
+          git push
+
