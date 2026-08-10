@@ -1,22 +1,44 @@
 import { Check, Clipboard, Info, LockKeyhole, RefreshCcw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { AppData } from '../types'
 import { dateTime, money } from '../utils'
 import { Balls } from '../components/Balls'
+import { generateResearchPlan, type ResearchPlan } from '../researchPlan'
 
 const budgets = [0, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 const modes = ['智能推荐', '单式', '复式', '混合']
+const defaultResearchNumbers = ['03 11 18 24 33 + 04 09']
 
 type Props = { data: AppData; stale: boolean; fallback: boolean }
 
 export function HomePage({ data, stale, fallback }: Props) {
   const [budget, setBudget] = useState(100)
   const [mode, setMode] = useState('智能推荐')
-  const [generated, setGenerated] = useState(false)
+  const [generatedPlan, setGeneratedPlan] = useState<ResearchPlan | null>(null)
+  const [generationCount, setGenerationCount] = useState(0)
   const [copied, setCopied] = useState(false)
+  const researchSectionRef = useRef<HTMLElement>(null)
   const recommendation = data.recommendation
-  const researchNumbers = recommendation.researchNumbers.length ? recommendation.researchNumbers : ['03 11 18 24 33 + 04 09']
-  const copyText = useMemo(() => researchNumbers.join('\n'), [researchNumbers])
+  const researchNumbers = recommendation.researchNumbers.length ? recommendation.researchNumbers : defaultResearchNumbers
+  const displayedNumbers = generatedPlan?.numbers ?? researchNumbers
+  const copyText = useMemo(() => displayedNumbers.join('\n'), [displayedNumbers])
+
+  function chooseBudget(value: number) {
+    setBudget(value)
+    setGeneratedPlan(null)
+  }
+
+  function chooseMode(value: string) {
+    setMode(value)
+    setGeneratedPlan(null)
+  }
+
+  function generatePlan() {
+    setGeneratedPlan(generateResearchPlan(mode, budget))
+    setGenerationCount((count) => count + 1)
+    setCopied(false)
+    window.requestAnimationFrame(() => researchSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
 
   async function copyNumbers() {
     await navigator.clipboard.writeText(copyText)
@@ -58,7 +80,7 @@ export function HomePage({ data, stale, fallback }: Props) {
         <div className="section-heading"><h2>预算上限（元）</h2><p>用户预算是上限，不是必须花完的目标</p></div>
         <div className="budget-grid" role="group" aria-label="预算上限">
           {budgets.map((value) => (
-            <button className={budget === value ? 'is-selected' : ''} onClick={() => setBudget(value)} key={value} aria-pressed={budget === value}>
+            <button className={budget === value ? 'is-selected' : ''} onClick={() => chooseBudget(value)} key={value} aria-pressed={budget === value}>
               {value}{budget === value && <Check size={14} aria-hidden="true" />}
             </button>
           ))}
@@ -69,9 +91,9 @@ export function HomePage({ data, stale, fallback }: Props) {
       <section className="control-section">
         <div className="section-heading"><h2>推荐模式</h2><p>不同模式只改变组合结构，不改变摇号概率</p></div>
         <div className="mode-control" role="group" aria-label="推荐模式">
-          {modes.map((value) => <button className={mode === value ? 'is-selected' : ''} onClick={() => setMode(value)} key={value}>{value}</button>)}
+          {modes.map((value) => <button className={mode === value ? 'is-selected' : ''} onClick={() => chooseMode(value)} key={value}>{value}</button>)}
         </div>
-        <button className="primary-action" onClick={() => setGenerated(true)}>生成本期方案</button>
+        <button className="primary-action" onClick={generatePlan}>生成本期方案</button>
         <p className="research-lock"><LockKeyhole size={16} />生成结果用于研究；是否建议购买由 Bet/Skip 证据阈值决定。</p>
       </section>
 
@@ -84,21 +106,27 @@ export function HomePage({ data, stale, fallback }: Props) {
         <p>以上结论只使用开奖前可获得的数据与预先登记的模型版本；不读取目标期或未来期数据。</p>
       </section>
 
-      <section className={`research-number-section ${generated ? 'is-generated' : ''}`}>
+      <section className={`research-number-section ${generatedPlan ? 'is-generated' : ''}`} ref={researchSectionRef}>
         <div className="research-title">
           <h2>研究用虚拟号码 <em>（不建议实际购买）</em></h2>
           <div>
-            <button onClick={copyNumbers}>{copied ? <Check size={16} /> : <Clipboard size={16} />}{copied ? '已复制' : '复制'}</button>
-            <button onClick={() => setGenerated(true)}><RefreshCcw size={16} />换一组</button>
+            <button onClick={copyNumbers} disabled={displayedNumbers.length === 0}>{copied ? <Check size={16} /> : <Clipboard size={16} />}{copied ? '已复制' : '复制'}</button>
+            <button onClick={generatePlan}><RefreshCcw size={16} />换一组</button>
           </div>
         </div>
-        {researchNumbers.map((numbers) => {
+        {generatedPlan && (
+          <div className="generation-feedback" role="status" aria-live="polite" key={generationCount}>
+            <strong>{generatedPlan.summary}</strong>
+            <span>理论金额 {money(generatedPlan.estimatedCost)}，不超过所选预算 {money(budget)}。</span>
+          </div>
+        )}
+        {displayedNumbers.map((numbers) => {
           const [front, back] = numbers.split('+').map((part) => part.trim().split(/\s+/).map(Number))
-          return <Balls front={front} back={back} size="sm" key={numbers} />
+          return <Balls front={front} back={back} size="sm" key={`${generationCount}-${numbers}`} />
         })}
+        {generatedPlan && displayedNumbers.length === 0 && <div className="empty-plan">预算为 0，未生成号码。</div>}
         <p>仅用于研究与回测示例，不构成购彩建议或收益承诺。</p>
       </section>
     </div>
   )
 }
-
