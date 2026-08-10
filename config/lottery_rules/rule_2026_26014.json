@@ -1,0 +1,26 @@
+{
+  "rule_version": "rule_2026_26014",
+  "effective_from_issue": 26014,
+  "effective_to_issue": null,
+  "front_pool": 35,
+  "front_pick": 5,
+  "back_pool": 12,
+  "back_pick": 2,
+  "base_price": 2,
+  "additional_price": 1,
+  "additional_ratio": 0.8,
+  "additional_levels": [1, 2],
+  "high_pool_threshold": 800000000,
+  "prize_levels": [
+    {"level": 1, "matches": [[5, 2]], "type": "floating"},
+    {"level": 2, "matches": [[5, 1]], "type": "floating"},
+    {"level": 3, "matches": [[5, 0], [4, 2]], "type": "fixed", "amount": 5000, "high_pool_amount": 6666},
+    {"level": 4, "matches": [[4, 1]], "type": "fixed", "amount": 300, "high_pool_amount": 380},
+    {"level": 5, "matches": [[4, 0], [3, 2]], "type": "fixed", "amount": 150, "high_pool_amount": 200},
+    {"level": 6, "matches": [[3, 1], [2, 2]], "type": "fixed", "amount": 15, "high_pool_amount": 18},
+    {"level": 7, "matches": [[3, 0], [2, 1], [1, 2], [0, 2]], "type": "fixed", "amount": 5, "high_pool_amount": 7}
+  ],
+  "source": "https://m.lottery.gov.cn/ksjz/m/yxgz_dlt/",
+  "note": "自第26014期起执行的官方七奖级规则；固定奖在奖池达到8亿元时采用上浮金额。"
+}
+

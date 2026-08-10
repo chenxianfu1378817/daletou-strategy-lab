@@ -1,0 +1,10 @@
+{
+  "tax_version": "tax_2024_09",
+  "effective_from": "2024-09-01",
+  "rate": 0.2,
+  "exempt_if_income_not_over": 10000,
+  "aggregation": "same_person_same_issue_same_game",
+  "source": "https://fgk.chinatax.gov.cn/zcfgk/c102416/c5233840/content.html",
+  "note": "同一人同一期同一游戏全部中奖收入合并为一次；超过1万元时按偶然所得全额计税。"
+}
+

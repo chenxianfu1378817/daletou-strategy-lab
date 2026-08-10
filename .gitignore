@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+.pycache/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+node_modules/
+web/node_modules/
+web/dist/
+data/raw/*.tmp
+data/*.db-shm
+data/*.db-wal
+coverage/
