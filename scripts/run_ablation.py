@@ -183,6 +183,9 @@ def main() -> None:
             "Current Model + Coverage + Bet/Skip + Budget/Smart",
         ):
             zero = metric_dict(name, window, [PeriodResult(row.issue, 0, 0, 0, 0, 0) for row in current_coverage], random_rois[window], baseline)
+            zero["excess_roi"] = 0.0
+            zero["random_percentile"] = 0.5
+            zero["investment_metrics_applicable"] = False
             zero["not_applicable_reason"] = "No eligible saved Evidence; strict gate skipped every period"
             rows.append(zero)
         ablation[str(window)] = rows

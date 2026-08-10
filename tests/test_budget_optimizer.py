@@ -1,7 +1,8 @@
 import unittest
+from pathlib import Path
 
 from daletou_lab.budget import decide
-from daletou_lab.evidence import Evidence
+from daletou_lab.evidence import Evidence, load_evidence
 from daletou_lab.models import ModelScores
 from daletou_lab.optimizer import build_plan, overlap
 from daletou_lab.rules import RuleRegistry
@@ -38,6 +39,11 @@ class BudgetOptimizerTests(unittest.TestCase):
         decision = decide(self.scores, self.rule, 100, evidence=None)
         self.assertEqual(decision.decision, "SKIP")
         self.assertEqual(decision.suggested_amount, 0)
+
+    def test_missing_saved_evidence_forces_skip(self):
+        evidence = load_evidence(Path("/tmp/definitely-missing-daletou-evidence.json"), "26089")
+        decision = decide(self.scores, self.rule, 100, evidence=evidence)
+        self.assertEqual((evidence.status, decision.decision, decision.suggested_amount), ("INVALID", "SKIP", 0))
 
     def test_no_chasing_losses_input(self):
         evidence = Evidence("V1.1.0", "Ensemble_v1", "26090", "now", "INSUFFICIENT", {}, ("Forward不足",))

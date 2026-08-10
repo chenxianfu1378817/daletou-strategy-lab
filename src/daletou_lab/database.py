@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS paper_bets (
     net_profit INTEGER,
     FOREIGN KEY (prediction_id) REFERENCES predictions(prediction_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS paper_bets_prediction_strategy_once
+ON paper_bets(prediction_id, strategy_id);
 CREATE TABLE IF NOT EXISTS real_bets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     issue TEXT NOT NULL,
@@ -209,6 +211,10 @@ def initialize(db_path: Path = DEFAULT_DB) -> None:
         connection.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS predictions_issue_strategy_once "
             "ON predictions(issue, strategy_version) WHERE strategy_version IS NOT NULL"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS paper_bets_prediction_strategy_once "
+            "ON paper_bets(prediction_id, strategy_id)"
         )
 
 

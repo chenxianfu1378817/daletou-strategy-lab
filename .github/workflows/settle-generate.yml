@@ -23,6 +23,7 @@ jobs:
       - run: pip install -e .
       - run: python scripts/update_draws.py
       - run: python scripts/validate_data.py
+      - run: python scripts/settle_paper_bets.py
       - run: python scripts/run_ablation.py --random-seeds 1000
       - run: python scripts/build_evidence.py
       - run: python scripts/generate_recommendation.py

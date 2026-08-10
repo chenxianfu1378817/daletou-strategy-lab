@@ -68,6 +68,19 @@ def write_json(path: Path, payload: dict) -> None:
     temporary.replace(path)
 
 
+def ensure_paper_bet(connection, prediction_id: int, payload: dict) -> None:
+    paper_payload = {
+        "issue": payload["issue"], "decision": payload["decision"],
+        "cost": payload["recommended_budget"], "bet_type": payload["bet_type"],
+        "numbers": payload["numbers"], "strategy_version": payload["strategy_version"],
+        "immutable_hash": payload["immutable_hash"],
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO paper_bets(prediction_id,strategy_id,payload_json) VALUES(?,?,?)",
+        (prediction_id, STRATEGY_VERSION, json.dumps(paper_payload, ensure_ascii=False)),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate the immutable V1.1.0 recommendation matrix")
     parser.add_argument("--db", type=Path, default=Path("data/daletou.db"))
@@ -84,12 +97,14 @@ def main() -> None:
     seed = int(hashlib.sha256(f"{issue}:{STRATEGY_VERSION}".encode()).hexdigest()[:12], 16)
     with connect(args.db) as connection:
         existing = connection.execute(
-            "SELECT explanation_json FROM predictions WHERE issue=? AND strategy_version=? LIMIT 1",
+            "SELECT prediction_id,explanation_json FROM predictions WHERE issue=? AND strategy_version=? LIMIT 1",
             (issue, STRATEGY_VERSION),
         ).fetchone()
     if existing is not None:
         stored = json.loads(existing["explanation_json"])
         payload = stored["snapshot"]
+        with connect(args.db) as connection:
+            ensure_paper_bet(connection, int(existing["prediction_id"]), payload)
         write_json(args.out, payload)
         print(json.dumps({"output": str(args.out), "issue": issue, "reused_immutable": True, "decision": payload["decision"]}, ensure_ascii=False))
         return
@@ -128,7 +143,7 @@ def main() -> None:
     immutable_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     payload["immutable_hash"] = immutable_hash
     with connect(args.db) as connection:
-        connection.execute(
+        cursor = connection.execute(
             """INSERT INTO predictions(issue,created_at,decision,budget_limit,recommended_amount,
             bet_type,numbers_json,explanation_json,model_version,feature_version,optimizer_version,
             budget_version,rule_version,code_commit_hash,strategy_version,evidence_status,evidence_json,
@@ -141,6 +156,7 @@ def main() -> None:
                 evidence.status, json.dumps(evidence.summary(), ensure_ascii=False), seed, immutable_hash,
             ),
         )
+        ensure_paper_bet(connection, int(cursor.lastrowid), payload)
     write_json(args.out, payload)
     print(json.dumps({"output": str(args.out), "issue": issue, "decision": payload["decision"], "evidence_status": evidence.status}, ensure_ascii=False))
 
