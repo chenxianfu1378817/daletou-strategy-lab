@@ -12,7 +12,8 @@
 - 规则：`rule_2019_19019`、`rule_2026_26014`
 - 数据：官方中国体育彩票开奖网关，SQLite 增量缓存
 - 推荐：默认 Experimental；证据不足即 SKIP
-- 在线网址：GitHub Pages 发布后由仓库设置生成
+- 在线网址：https://chenxianfu1378817.github.io/daletou-strategy-lab/
+- 公开仓库：https://github.com/chenxianfu1378817/daletou-strategy-lab
 
 ## 核心能力
 
