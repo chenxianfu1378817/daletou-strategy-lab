@@ -4,7 +4,7 @@ import random
 from dataclasses import dataclass
 from itertools import combinations
 from math import comb
-from typing import Iterable, List, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
 from .atomic import AtomicBet, MultipleBet, portfolio_cost
 from .models import ModelScores
@@ -70,6 +70,16 @@ def greedy_coverage(scores: ModelScores, rule: LotteryRule, atomic_count: int, s
     return selected
 
 
+def signal_ranked(scores: ModelScores, rule: LotteryRule, atomic_count: int, seed: int = 0) -> List[AtomicBet]:
+    """Model-only portfolio: rank unique candidates by score without a coverage reward."""
+    candidates = _candidate_pool(scores, rule, seed)
+    return sorted(
+        candidates,
+        key=lambda bet: sum(scores.front[n] for n in bet.front) + sum(scores.back[n] for n in bet.back),
+        reverse=True,
+    )[: max(0, atomic_count)]
+
+
 @dataclass(frozen=True)
 class PortfolioPlan:
     bet_type: str
@@ -79,14 +89,23 @@ class PortfolioPlan:
     unused_budget: int
 
 
-def build_plan(scores: ModelScores, rule: LotteryRule, budget_limit: int, mode: str = "智能推荐", seed: int = 0) -> PortfolioPlan:
+def build_plan(
+    scores: ModelScores,
+    rule: LotteryRule,
+    budget_limit: int,
+    mode: str = "智能推荐",
+    seed: int = 0,
+    coverage_bets: Sequence[AtomicBet] | None = None,
+) -> PortfolioPlan:
     if not 0 <= budget_limit <= 100:
         raise ValueError("预算必须在0到100元之间")
     if budget_limit < rule.base_price:
         return PortfolioPlan("不投注", (), (), 0, budget_limit)
     atomic_limit = budget_limit // rule.base_price
-    if mode in ("单式", "智能推荐"):
-        bets = tuple(greedy_coverage(scores, rule, atomic_limit, seed))
+    if mode == "智能推荐":
+        raise ValueError("智能推荐必须通过Single / Multiple / Hybrid真实指标比较，不得直接生成")
+    if mode == "单式":
+        bets = tuple((coverage_bets or greedy_coverage(scores, rule, atomic_limit, seed))[:atomic_limit])
         cost = portfolio_cost(bets, rule)
         return PortfolioPlan("单式", bets, (), cost, budget_limit - cost)
     ranked_front = tuple(sorted(scores.front, key=scores.front.get, reverse=True))
@@ -108,8 +127,29 @@ def build_plan(scores: ModelScores, rule: LotteryRule, budget_limit: int, mode: 
         cost, compound = max(affordable or candidates, key=lambda item: item[0])
         remaining = (budget_limit - cost) // rule.base_price
         compound_atoms = tuple(compound.expand(rule))
-        extras = [bet for bet in greedy_coverage(scores, rule, remaining + len(compound_atoms), seed) if bet not in compound_atoms][:remaining]
+        source = coverage_bets or greedy_coverage(scores, rule, remaining + len(compound_atoms), seed)
+        extras = [bet for bet in source[: remaining + len(compound_atoms)] if bet not in compound_atoms][:remaining]
         atoms = compound_atoms + tuple(extras)
         total_cost = cost + portfolio_cost(extras, rule)
         return PortfolioPlan("混合", atoms, (compound,), total_cost, budget_limit - total_cost)
-    return build_plan(scores, rule, budget_limit, "单式", seed)
+    return build_plan(scores, rule, budget_limit, "单式", seed, coverage_bets)
+
+
+def plan_structure_metrics(plan: PortfolioPlan) -> Dict[str, float]:
+    atoms = tuple(plan.atomic_bets)
+    front_numbers = {number for bet in atoms for number in bet.front}
+    back_numbers = {number for bet in atoms for number in bet.back}
+    front_pairs = {pair for bet in atoms for pair in combinations(bet.front, 2)}
+    pair_overlaps = []
+    for index, left in enumerate(atoms):
+        for right in atoms[index + 1 :]:
+            detail = overlap(left, right)
+            pair_overlaps.append(detail["front_jaccard"] * 0.7 + detail["back_jaccard"] * 0.3)
+    return {
+        "actual_cost": plan.cost,
+        "atomic_bets": len(atoms),
+        "front_coverage": len(front_numbers),
+        "back_coverage": len(back_numbers),
+        "front_pair_coverage": len(front_pairs),
+        "combination_overlap": sum(pair_overlaps) / len(pair_overlaps) if pair_overlaps else 0.0,
+    }

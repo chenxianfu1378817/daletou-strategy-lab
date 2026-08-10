@@ -1,7 +1,7 @@
 import type { AppData } from './types'
 
 export const fallbackData: AppData = {
-  version: '1.0.0',
+  version: '1.1.0',
   generatedAt: '2026-08-10T00:00:00Z',
   source: 'China Sports Lottery official gateway',
   latest: {
@@ -23,7 +23,17 @@ export const fallbackData: AppData = {
     betType: '不投注',
     reasons: ['当前策略无显著样本外优势', '尚未超过随机策略高分位', 'Forward Paper 样本仍不足'],
     uncertainty: 0.78,
-    researchNumbers: ['03 11 18 24 33 + 04 09'],
+    numbers: [],
+    evidence: {
+      status: 'INVALID', bet_eligible: false, source_issue: '', walk_forward_roi: null,
+      excess_roi_vs_random: null, random_percentile: null, maximum_drawdown: null,
+      roi_excluding_largest_win: null, validation_status: 'unknown', holdout_status: 'unknown',
+      forward_periods: 0, forward_roi: null, model_stability: null, random_seed_count: 0,
+      problems: ['本地后备数据不包含有效Evidence，默认SKIP'],
+    },
+    plans: {},
+    modelVersion: 'Ensemble_v1', strategyVersion: 'V1.1.0', randomSeed: 0,
+    gitCommitHash: 'unavailable', immutableHash: '', officialNumbersSource: 'Python backend only',
   },
   backtests: [],
   validation: { training: 'complete', validation: 'complete', holdout: 'locked', forward: 'collecting' },
@@ -43,4 +53,3 @@ export function isStale(isoDate: string, now = new Date()): boolean {
   const generated = new Date(isoDate)
   return Number.isNaN(generated.getTime()) || now.getTime() - generated.getTime() > 5 * 24 * 60 * 60 * 1000
 }
-

@@ -23,13 +23,14 @@ jobs:
       - run: pip install -e .
       - run: python scripts/update_draws.py
       - run: python scripts/validate_data.py
-      - run: python scripts/generate_recommendation.py --budget 100 --mode 智能推荐
+      - run: python scripts/run_ablation.py --random-seeds 1000
+      - run: python scripts/build_evidence.py
+      - run: python scripts/generate_recommendation.py
       - run: python scripts/build_web_data.py
       - name: Commit immutable paper recommendation
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add data/daletou.db data/raw web/public/data/app-data.json
+          git add data/daletou.db data/raw data/exports web/public/data/app-data.json
           git diff --cached --quiet || git commit -m "data: settle and generate paper recommendation"
           git push
-

@@ -20,6 +20,35 @@ export interface BacktestRow {
   random_percentile: number
 }
 
+export interface CandidateComparison {
+  mode: string
+  score: number
+  meets_bet_standard: boolean
+  metrics: Record<string, number | string>
+  candidate_cost: number
+  candidate_atomic_bets: string[]
+  official: boolean
+}
+
+export interface OfficialPlan {
+  decision: 'BET' | 'SKIP'
+  budget_limit: number
+  recommended_budget: number
+  mode: string
+  bet_type: string
+  numbers: string[]
+  atomic_bets: string[]
+  atomic_bet_count: number
+  actual_cost: number
+  unused_budget: number
+  reasons: string[]
+  bet_score: number
+  selected_candidate: string | null
+  comparisons: CandidateComparison[]
+}
+
+export type RecommendationPlans = Record<string, Partial<Record<'Smart' | 'Single' | 'Multiple' | 'Hybrid', OfficialPlan>>>
+
 export interface AppData {
   version: string
   generatedAt: string
@@ -43,9 +72,32 @@ export interface AppData {
     betType: string
     reasons: string[]
     uncertainty: number
-    researchNumbers: string[]
+    numbers: string[]
+    evidence: {
+      status: string
+      bet_eligible: boolean
+      source_issue: string
+      walk_forward_roi: number | null
+      excess_roi_vs_random: number | null
+      random_percentile: number | null
+      maximum_drawdown: number | null
+      roi_excluding_largest_win: number | null
+      validation_status: string
+      holdout_status: string
+      forward_periods: number
+      forward_roi: number | null
+      model_stability: number | null
+      random_seed_count: number
+      problems: string[]
+    }
+    plans: RecommendationPlans
+    modelVersion: string
+    strategyVersion: string
+    randomSeed: number
+    gitCommitHash: string
+    immutableHash: string
+    officialNumbersSource: string
   }
   backtests: BacktestRow[]
   validation: Record<string, string>
 }
-

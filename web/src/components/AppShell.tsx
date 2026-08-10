@@ -28,7 +28,7 @@ export function AppShell({ active, onNavigate, children }: Props) {
             <button className={active === key ? 'is-active' : ''} onClick={() => onNavigate(key)} key={key}>{label}</button>
           ))}
         </nav>
-        <span className="version">V1.0.0</span>
+        <span className="version">V1.1.0</span>
       </header>
       <main>{children}</main>
       <footer className="risk-footer">本系统用于概率统计、组合优化及策略回测研究，不保证中奖或盈利。彩票开奖结果具有随机性，请严格控制投注金额。</footer>
@@ -43,4 +43,3 @@ export function AppShell({ active, onNavigate, children }: Props) {
     </div>
   )
 }
-

@@ -11,6 +11,7 @@ describe('web data safety', () => {
   it('fallback recommendation is conservative', () => {
     expect(fallbackData.recommendation.decision).toBe('SKIP')
     expect(fallbackData.recommendation.suggestedAmount).toBe(0)
+    expect(fallbackData.recommendation.numbers).toEqual([])
+    expect(fallbackData.recommendation.evidence.status).toBe('INVALID')
   })
 })
-

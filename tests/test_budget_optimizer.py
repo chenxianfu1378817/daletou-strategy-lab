@@ -1,6 +1,7 @@
 import unittest
 
 from daletou_lab.budget import decide
+from daletou_lab.evidence import Evidence
 from daletou_lab.models import ModelScores
 from daletou_lab.optimizer import build_plan, overlap
 from daletou_lab.rules import RuleRegistry
@@ -19,7 +20,7 @@ class BudgetOptimizerTests(unittest.TestCase):
 
     def test_all_budgets_all_modes_never_exceed(self):
         for budget in (0, 20, 30, 40, 50, 60, 70, 80, 90, 100):
-            for mode in ("智能推荐", "单式", "复式", "混合"):
+            for mode in ("单式", "复式", "混合"):
                 with self.subTest(budget=budget, mode=mode):
                     plan = build_plan(self.scores, self.rule, budget, mode, 42)
                     self.assertLessEqual(plan.cost, budget)
@@ -34,13 +35,21 @@ class BudgetOptimizerTests(unittest.TestCase):
             build_plan(self.scores, self.rule, 101)
 
     def test_budget_is_cap_not_target(self):
-        decision = decide(self.scores, self.rule, 100, evidence={})
+        decision = decide(self.scores, self.rule, 100, evidence=None)
         self.assertEqual(decision.decision, "SKIP")
         self.assertEqual(decision.suggested_amount, 0)
 
     def test_no_chasing_losses_input(self):
-        decision = decide(self.scores, self.rule, 100, evidence={"loss_streak": 99})
+        evidence = Evidence("V1.1.0", "Ensemble_v1", "26090", "now", "INSUFFICIENT", {}, ("Forward不足",))
+        decision = decide(self.scores, self.rule, 100, evidence=evidence)
         self.assertEqual(decision.suggested_amount, 0)
+
+    def test_smart_compares_all_three_candidates(self):
+        evidence = Evidence("V1.1.0", "Ensemble_v1", "26090", "now", "INSUFFICIENT", {}, ("Forward不足",))
+        decision = decide(self.scores, self.rule, 100, "智能推荐", evidence, 42)
+        self.assertEqual({item.mode for item in decision.comparisons}, {"Single", "Multiple", "Hybrid"})
+        self.assertEqual(decision.decision, "SKIP")
+        self.assertEqual(decision.plan.cost, 0)
 
     def test_overlap_identity(self):
         plan = build_plan(self.scores, self.rule, 20, "单式", 1)
@@ -53,4 +62,3 @@ class BudgetOptimizerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

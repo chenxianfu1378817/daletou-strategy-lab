@@ -1,0 +1,14 @@
+{
+  "strategy_version": "V1.1.0",
+  "model_version": "Ensemble_v1",
+  "feature_version": "features_v1",
+  "optimizer_version": "atomic_compare_v1.1",
+  "budget_version": "budget_smart_v1.1",
+  "official_output": "data/exports/recommendation.json",
+  "evidence_input": "data/exports/evidence.json",
+  "budget_limits": [0, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  "modes": ["Single", "Multiple", "Hybrid", "Smart"],
+  "missing_evidence_decision": "SKIP",
+  "maximum_cost": 100,
+  "chasing_losses": false
+}

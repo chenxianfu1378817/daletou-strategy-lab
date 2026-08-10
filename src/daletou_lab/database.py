@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     budget_version TEXT NOT NULL,
     rule_version TEXT NOT NULL,
     code_commit_hash TEXT,
+    strategy_version TEXT,
+    evidence_status TEXT,
+    evidence_json TEXT,
+    random_seed INTEGER,
     immutable_hash TEXT NOT NULL UNIQUE
 );
 CREATE TRIGGER IF NOT EXISTS predictions_no_update
@@ -117,6 +121,16 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     period_label TEXT NOT NULL,
     metrics_json TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS strategy_evidence (
+    evidence_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    source_issue TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('VALID', 'INSUFFICIENT', 'INVALID', 'STALE')),
+    payload_json TEXT NOT NULL,
+    immutable_hash TEXT NOT NULL UNIQUE
 );
 CREATE TABLE IF NOT EXISTS holdout_registry (
     holdout_id TEXT PRIMARY KEY,
@@ -182,6 +196,20 @@ def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
 def initialize(db_path: Path = DEFAULT_DB) -> None:
     with connect(db_path) as connection:
         connection.executescript(SCHEMA)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(predictions)")}
+        migrations = {
+            "strategy_version": "ALTER TABLE predictions ADD COLUMN strategy_version TEXT",
+            "evidence_status": "ALTER TABLE predictions ADD COLUMN evidence_status TEXT",
+            "evidence_json": "ALTER TABLE predictions ADD COLUMN evidence_json TEXT",
+            "random_seed": "ALTER TABLE predictions ADD COLUMN random_seed INTEGER",
+        }
+        for column, statement in migrations.items():
+            if column not in columns:
+                connection.execute(statement)
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS predictions_issue_strategy_once "
+            "ON predictions(issue, strategy_version) WHERE strategy_version IS NOT NULL"
+        )
 
 
 def upsert_draw(connection: sqlite3.Connection, draw: Draw, prizes: Sequence[Dict[str, object]]) -> None:
@@ -269,4 +297,3 @@ def realized_prizes(connection: sqlite3.Connection, issue: str) -> Dict[int, int
         (issue,),
     ).fetchall()
     return {int(row[0]): int(row[1]) for row in rows if row[1] is not None}
-

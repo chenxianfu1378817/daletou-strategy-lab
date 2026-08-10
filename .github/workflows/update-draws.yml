@@ -23,7 +23,8 @@ jobs:
       - run: pip install -e .
       - run: python scripts/update_draws.py
       - run: python scripts/validate_data.py
-      - run: python scripts/build_web_data.py
+      - name: Publish stale-safe snapshot until the evidence workflow completes
+        run: python scripts/build_web_data.py
       - name: Commit verified data only
         run: |
           git config user.name github-actions[bot]
@@ -31,4 +32,3 @@ jobs:
           git add data/daletou.db data/raw web/public/data/app-data.json
           git diff --cached --quiet || git commit -m "data: update verified official draws"
           git push
-

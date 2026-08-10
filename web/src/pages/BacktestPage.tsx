@@ -13,11 +13,13 @@ const demoRows: BacktestRow[] = [
 
 export function BacktestPage({ data }: { data: AppData }) {
   const rows = data.backtests.length ? data.backtests : demoRows
-  const [model, setModel] = useState('Ensemble')
+  const [model, setModel] = useState('Current Model + Coverage')
   const [windowSize, setWindowSize] = useState('300')
   const [budget, setBudget] = useState('20')
   const [running, setRunning] = useState(false)
-  const selected = useMemo(() => rows.find((row) => row.model === model) ?? rows[rows.length - 1], [model, rows])
+  const windowRows = useMemo(() => rows.filter((row) => row.period === `最近${windowSize}期`), [rows, windowSize])
+  const models = useMemo(() => [...new Set(rows.map((row) => row.model))], [rows])
+  const selected = useMemo(() => windowRows.find((row) => row.model === model) ?? windowRows[windowRows.length - 1] ?? rows[rows.length - 1], [model, rows, windowRows])
 
   function run() {
     setRunning(true)
@@ -28,8 +30,8 @@ export function BacktestPage({ data }: { data: AppData }) {
     <div className="page data-page">
       <header className="page-title"><div><h1>严格回测</h1><p>Walk-forward · 同预算 Atomic Bets 公平比较 · 不触碰 Locked Holdout</p></div><span>普通页面不开放 Holdout 调参</span></header>
       <section className="filter-rail">
-        <label>模型<select value={model} onChange={(event) => setModel(event.target.value)}>{rows.map((row) => <option key={row.model}>{row.model}</option>)}</select></label>
-        <label>区间<select value={windowSize} onChange={(event) => setWindowSize(event.target.value)}>{[100, 300, 500, 1000].map((n) => <option value={n} key={n}>最近{n}期</option>)}</select></label>
+        <label>模型<select value={model} onChange={(event) => setModel(event.target.value)}>{models.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label>区间<select value={windowSize} onChange={(event) => setWindowSize(event.target.value)}>{[100, 300, 500].map((n) => <option value={n} key={n}>最近{n}期</option>)}</select></label>
         <label>每期预算<select value={budget} onChange={(event) => setBudget(event.target.value)}>{[20, 40, 60, 80, 100].map((n) => <option key={n}>{n}</option>)}</select></label>
         <button onClick={run}>{running ? '计算中…' : '运行回测'}</button>
       </section>
@@ -67,10 +69,9 @@ export function BacktestPage({ data }: { data: AppData }) {
       <section className="table-section">
         <div className="section-heading"><h2>模型公平比较</h2><p>相同区间、预算、投注频率与原子注成本</p></div>
         <div className="table-scroll"><table><thead><tr><th>模型</th><th>投入</th><th>奖金</th><th>净利润</th><th>ROI</th><th>Excess</th><th>最大回撤</th><th>随机百分位</th></tr></thead><tbody>
-          {rows.map((row) => <tr className={row.model === model ? 'is-selected' : ''} onClick={() => setModel(row.model)} key={row.model}><th>{row.model}</th><td>{money(row.total_cost)}</td><td>{money(row.total_prize)}</td><td>{money(row.net_profit)}</td><td>{percent(row.roi)}</td><td>{percent(row.excess_roi)}</td><td>{money(-row.max_drawdown)}</td><td>P{Math.round(row.random_percentile * 100)}</td></tr>)}
+          {windowRows.map((row) => <tr className={row.model === model ? 'is-selected' : ''} onClick={() => setModel(row.model)} key={`${row.period}-${row.model}`}><th>{row.model}</th><td>{money(row.total_cost)}</td><td>{money(row.total_prize)}</td><td>{money(row.net_profit)}</td><td>{percent(row.roi)}</td><td>{percent(row.excess_roi)}</td><td>{money(-row.max_drawdown)}</td><td>P{Math.round(row.random_percentile * 100)}</td></tr>)}
         </tbody></table></div>
       </section>
     </div>
   )
 }
-
