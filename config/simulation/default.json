@@ -1,0 +1,9 @@
+{
+  "iterations": 10000,
+  "supported_iterations": [10000, 100000],
+  "horizons": [100, 300, 500, 1000],
+  "random_seed": 20260810,
+  "draw_mechanism": "uniform_without_replacement",
+  "bootstrap_separate": true
+}
+

@@ -1,0 +1,11 @@
+{
+  "strategy_id": "Ensemble",
+  "version": "Ensemble_v1",
+  "status": "Experimental",
+  "members": ["Frequency", "Bayesian", "Entropy", "CoOccurrence"],
+  "optimizer": "coverage_v1",
+  "budget": "budget_v1",
+  "holdout": "v1_future_30",
+  "production_decision": "SKIP"
+}
+
