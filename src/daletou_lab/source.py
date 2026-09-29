@@ -11,7 +11,7 @@ import urllib.request
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from pypdf import PdfReader
@@ -24,6 +24,8 @@ OFFICIAL_API = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1
 OFFICIAL_SOURCE = "China Sports Lottery official gateway"
 OFFICIAL_PDF_SOURCE = "China Sports Lottery official draw announcement PDF"
 OFFICIAL_PDF_TEMPLATE = "https://pdf.sporttery.cn/33800/{issue}/{issue}.pdf"
+SHANGHAI_SOURCE = "Shanghai Sports Lottery official draw data"
+SHANGHAI_DRAW_TEMPLATE = "https://www.shsportslottery.com/cpsj/dlt/kj_{issue}.json"
 
 
 def _number(value: object) -> float | None:
@@ -198,16 +200,85 @@ def _fetch_official_pdf(issue: str, timeout: int = 30) -> Dict[str, object] | No
     return _parse_official_pdf(issue, content)
 
 
-def _update_from_official_pdfs(
+def _parse_shanghai_draw(issue: str, payload: Dict[str, object]) -> Dict[str, object]:
+    if payload.get("ret") is not True or not isinstance(payload.get("data"), dict):
+        raise ValueError(f"Shanghai Sports Lottery returned an invalid draw for issue {issue}")
+    data = payload["data"]
+    if data.get("lotId") != "dlt" or str(data.get("issueNo")) != issue:
+        raise ValueError(f"Shanghai Sports Lottery draw does not match issue {issue}")
+
+    code = str(data.get("bonusCode", ""))
+    match = re.fullmatch(r"(\d{2},){4}\d{2}#\d{2},\d{2}", code)
+    if not match:
+        raise ValueError(f"Shanghai Sports Lottery issue {issue} has invalid winning numbers")
+    front_text, back_text = code.split("#")
+    front = [int(value) for value in front_text.split(",")]
+    back = [int(value) for value in back_text.split(",")]
+    if (front != sorted(set(front)) or back != sorted(set(back))
+            or any(value < 1 or value > 35 for value in front)
+            or any(value < 1 or value > 12 for value in back)):
+        raise ValueError(f"Shanghai Sports Lottery issue {issue} has invalid winning numbers")
+
+    date = str(data.get("bonusDate", ""))
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError as error:
+        raise ValueError(f"Shanghai Sports Lottery issue {issue} has invalid draw date") from error
+
+    prize_rows = []
+    for row in data.get("bonusList", []):
+        if not isinstance(row, dict):
+            raise ValueError(f"Shanghai Sports Lottery issue {issue} has invalid prize rows")
+        name = str(row.get("name", ""))
+        level, additional = _parse_prize_level(name)
+        count = _integer(row.get("amount"))
+        prize = _integer(row.get("money"))
+        if count is None or count < 0 or prize is None and count != 0:
+            raise ValueError(f"Shanghai Sports Lottery issue {issue} has invalid prize amounts")
+        prize_rows.append({
+            "prizeLevel": f"{name}",
+            "stakeCount": str(count),
+            "stakeAmountFormat": str(prize or 0),
+        })
+
+    return {
+        "lotteryDrawNum": issue,
+        "lotteryDrawResult": " ".join(f"{value:02d}" for value in front + back),
+        "lotteryDrawTime": date,
+        "prizeLevelList": prize_rows,
+        "sourceUrl": SHANGHAI_DRAW_TEMPLATE.format(issue=issue),
+        "_source": SHANGHAI_SOURCE,
+    }
+
+
+def _fetch_shanghai_draw(issue: str, timeout: int = 30) -> Dict[str, object] | None:
+    request = urllib.request.Request(
+        SHANGHAI_DRAW_TEMPLATE.format(issue=issue),
+        headers={"User-Agent": "daletou-strategy-lab/1.0 (+public research; no gambling claims)"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    return _parse_shanghai_draw(issue, payload)
+
+
+def _update_from_issue_files(
     connection,
     existing: set[str],
     registry: RuleRegistry,
     fetched_at: str,
     raw_dir: Path,
+    fetch_issue: Callable[[str], Dict[str, object] | None],
+    source: str,
+    cache_prefix: str,
     max_issues: int = 30,
 ) -> Dict[str, object]:
     if not existing:
-        raise RuntimeError("Cannot use the official PDF fallback without an existing issue number")
+        raise RuntimeError("Cannot use the issue-file fallback without an existing issue number")
 
     latest_issue = max(existing, key=int)
     year = int(latest_issue[:2])
@@ -218,16 +289,17 @@ def _update_from_official_pdfs(
 
     while checked < max_issues:
         candidate = f"{year:02d}{sequence + 1:03d}"
-        item = _fetch_official_pdf(candidate)
+        item = fetch_issue(candidate)
         if item is None and year < current_year:
             year += 1
             sequence = 0
             candidate = f"{year:02d}{sequence + 1:03d}"
-            item = _fetch_official_pdf(candidate)
+            item = fetch_issue(candidate)
         if item is None:
             break
 
-        item["sourceUrl"] = item.pop("_sourceUrl")
+        if "_sourceUrl" in item:
+            item["sourceUrl"] = item.pop("_sourceUrl")
         draw, prizes = parse_item(item, registry, fetched_at)
         if draw.issue in existing:
             break
@@ -237,16 +309,16 @@ def _update_from_official_pdfs(
         actual_prizes = {(row["prize_level"], row["additional"]) for row in prizes}
         if actual_prizes != expected_prizes:
             raise ValueError(
-                f"Official draw PDF for issue {candidate} has an incomplete prize table"
+                f"{source} for issue {candidate} has an incomplete prize table"
             )
         if (
             datetime.fromisoformat(draw.draw_date).date()
             > datetime.now(ZoneInfo("Asia/Shanghai")).date()
         ):
-            raise ValueError(f"Official draw PDF for issue {candidate} is dated in the future")
+            raise ValueError(f"{source} for issue {candidate} is dated in the future")
 
         upsert_draw(connection, draw, prizes)
-        write_raw_cache(item, raw_dir / f"official-pdf-{candidate}.json")
+        write_raw_cache(item, raw_dir / f"{cache_prefix}-{candidate}.json")
         connection.commit()
         existing.add(candidate)
         inserted += 1
@@ -256,7 +328,7 @@ def _update_from_official_pdfs(
 
     return {
         "inserted": inserted,
-        "source": OFFICIAL_PDF_SOURCE,
+        "source": source,
         "fetched_at": fetched_at,
         "fallback_checked": checked,
     }
@@ -297,9 +369,16 @@ def update_official(db_path: Path = DEFAULT_DB, full: bool = False, max_pages: i
                     or error.__cause__.code != 567
                 ):
                     raise
-                return _update_from_official_pdfs(
-                    connection, existing, registry, fetched_at, db_path.parent / "raw"
-                )
+                try:
+                    return _update_from_issue_files(
+                        connection, existing, registry, fetched_at, db_path.parent / "raw",
+                        _fetch_shanghai_draw, SHANGHAI_SOURCE, "shanghai-official",
+                    )
+                except (urllib.error.URLError, RuntimeError):
+                    return _update_from_issue_files(
+                        connection, existing, registry, fetched_at, db_path.parent / "raw",
+                        _fetch_official_pdf, OFFICIAL_PDF_SOURCE, "official-pdf",
+                    )
             items = payload.get("value", {}).get("list", [])
             if not items:
                 break
