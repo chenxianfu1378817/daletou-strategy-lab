@@ -9,8 +9,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
+from zoneinfo import ZoneInfo
+
+from pypdf import PdfReader
 
 from .database import DEFAULT_DB, Draw, connect, initialize, upsert_draw
 from .rules import RuleRegistry
@@ -18,6 +22,8 @@ from .rules import RuleRegistry
 
 OFFICIAL_API = "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry"
 OFFICIAL_SOURCE = "China Sports Lottery official gateway"
+OFFICIAL_PDF_SOURCE = "China Sports Lottery official draw announcement PDF"
+OFFICIAL_PDF_TEMPLATE = "https://pdf.sporttery.cn/33800/{issue}/{issue}.pdf"
 
 
 def _number(value: object) -> float | None:
@@ -88,10 +94,14 @@ def parse_item(item: Dict[str, object], registry: RuleRegistry, fetched_at: str)
         jackpot_before=_number(item.get("poolBalance")),
         jackpot_after=_number(item.get("poolBalanceAfterdraw")),
         rule_version=rule.rule_version,
-        source=OFFICIAL_SOURCE,
+        source=str(item.get("_source") or OFFICIAL_SOURCE),
         fetched_at=fetched_at,
         verified=True,
-        raw_json=json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+        raw_json=json.dumps(
+            {key: value for key, value in item.items() if not key.startswith("_")},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
     )
     prizes = []
     for row in item.get("prizeLevelList", []):
@@ -106,6 +116,150 @@ def parse_item(item: Dict[str, object], registry: RuleRegistry, fetched_at: str)
             }
         )
     return draw, prizes
+
+
+def _parse_official_pdf(issue: str, content: bytes) -> Dict[str, object]:
+    reader = PdfReader(BytesIO(content), strict=False)
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    issue_match = re.search(r"第\s*(\d{5})\s*期开奖公告", text)
+    if not issue_match or issue_match.group(1) != issue:
+        raise ValueError(f"Official draw PDF does not match expected issue {issue}")
+
+    date_match = re.search(r"开奖日期：\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日", text)
+    sales_match = re.search(r"本期全国销售金额：\s*([\d,]+)元", text)
+    jackpot_match = re.search(r"([\d,.]+)元奖金滚入下期奖池", text)
+    numbers_match = re.search(r"本期开奖号码：([\s\S]*?)本期中奖情况", text)
+    if not all((date_match, sales_match, jackpot_match, numbers_match)):
+        raise ValueError(f"Official draw PDF for issue {issue} is missing required fields")
+
+    numbers = [int(value) for value in re.findall(r"\b\d{1,2}\b", numbers_match.group(1))]
+    if len(numbers) != 7:
+        raise ValueError(f"Official draw PDF for issue {issue} has {len(numbers)} winning numbers")
+
+    prize_rows: List[Dict[str, str]] = []
+    current_level = ""
+    for raw_line in text.splitlines():
+        line = " ".join(raw_line.split())
+        level_match = re.match(r"^([一二三四五六七八九]等奖)\s*(.*)$", line)
+        if level_match:
+            current_level = level_match.group(1)
+            remainder = level_match.group(2)
+        elif line.startswith("追加") and current_level in {"一等奖", "二等奖"}:
+            remainder = line
+        else:
+            continue
+
+        count_match = re.search(r"([\d,]+)\s*注", remainder)
+        if not count_match:
+            continue
+        count = int(count_match.group(1).replace(",", ""))
+        amount_match = re.search(r"([\d,]+)\s*元", remainder[count_match.end() :])
+        if not amount_match and count != 0:
+            continue
+        additional = "追加" in remainder
+        prize_rows.append(
+            {
+                "prizeLevel": f"{current_level}{'(追加)' if additional else ''}",
+                "stakeCount": str(count),
+                "stakeAmountFormat": (
+                    amount_match.group(1).replace(",", "") if amount_match else "0"
+                ),
+            }
+        )
+
+    return {
+        "lotteryDrawNum": issue,
+        "lotteryDrawResult": " ".join(f"{value:02d}" for value in numbers),
+        "lotteryDrawTime": (
+            f"{date_match.group(1)}-{int(date_match.group(2)):02d}-{int(date_match.group(3)):02d}"
+        ),
+        "totalSaleAmount": sales_match.group(1).replace(",", ""),
+        "poolBalanceAfterdraw": jackpot_match.group(1).replace(",", ""),
+        "prizeLevelList": prize_rows,
+        "_source": OFFICIAL_PDF_SOURCE,
+        "_sourceUrl": OFFICIAL_PDF_TEMPLATE.format(issue=issue),
+    }
+
+
+def _fetch_official_pdf(issue: str, timeout: int = 30) -> Dict[str, object] | None:
+    request = urllib.request.Request(
+        OFFICIAL_PDF_TEMPLATE.format(issue=issue),
+        headers={"User-Agent": "daletou-strategy-lab/1.0 (+public research; no gambling claims)"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            content = response.read(2_000_001)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    if len(content) > 2_000_000 or not content.startswith(b"%PDF-"):
+        raise ValueError(f"Official draw PDF for issue {issue} is not a valid PDF")
+    return _parse_official_pdf(issue, content)
+
+
+def _update_from_official_pdfs(
+    connection,
+    existing: set[str],
+    registry: RuleRegistry,
+    fetched_at: str,
+    raw_dir: Path,
+    max_issues: int = 30,
+) -> Dict[str, object]:
+    if not existing:
+        raise RuntimeError("Cannot use the official PDF fallback without an existing issue number")
+
+    latest_issue = max(existing, key=int)
+    year = int(latest_issue[:2])
+    sequence = int(latest_issue[2:])
+    current_year = datetime.now(ZoneInfo("Asia/Shanghai")).year % 100
+    inserted = 0
+    checked = 0
+
+    while checked < max_issues:
+        candidate = f"{year:02d}{sequence + 1:03d}"
+        item = _fetch_official_pdf(candidate)
+        if item is None and year < current_year:
+            year += 1
+            sequence = 0
+            candidate = f"{year:02d}{sequence + 1:03d}"
+            item = _fetch_official_pdf(candidate)
+        if item is None:
+            break
+
+        item["sourceUrl"] = item.pop("_sourceUrl")
+        draw, prizes = parse_item(item, registry, fetched_at)
+        if draw.issue in existing:
+            break
+        rule = registry.for_issue(draw.issue)
+        expected_prizes = {(level.level, False) for level in rule.prize_levels}
+        expected_prizes.update((level, True) for level in rule.additional_levels)
+        actual_prizes = {(row["prize_level"], row["additional"]) for row in prizes}
+        if actual_prizes != expected_prizes:
+            raise ValueError(
+                f"Official draw PDF for issue {candidate} has an incomplete prize table"
+            )
+        if (
+            datetime.fromisoformat(draw.draw_date).date()
+            > datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        ):
+            raise ValueError(f"Official draw PDF for issue {candidate} is dated in the future")
+
+        upsert_draw(connection, draw, prizes)
+        write_raw_cache(item, raw_dir / f"official-pdf-{candidate}.json")
+        connection.commit()
+        existing.add(candidate)
+        inserted += 1
+        checked += 1
+        year = int(candidate[:2])
+        sequence = int(candidate[2:])
+
+    return {
+        "inserted": inserted,
+        "source": OFFICIAL_PDF_SOURCE,
+        "fetched_at": fetched_at,
+        "fallback_checked": checked,
+    }
 
 
 def write_raw_cache(payload: Dict[str, object], path: Path) -> None:
@@ -135,7 +289,17 @@ def update_official(db_path: Path = DEFAULT_DB, full: bool = False, max_pages: i
     with connect(db_path) as connection:
         existing = {row[0] for row in connection.execute("SELECT issue FROM draws").fetchall()}
         while page_no <= max_pages:
-            payload = fetch_page(page_no)
+            try:
+                payload = fetch_page(page_no)
+            except RuntimeError as error:
+                if (
+                    not isinstance(error.__cause__, urllib.error.HTTPError)
+                    or error.__cause__.code != 567
+                ):
+                    raise
+                return _update_from_official_pdfs(
+                    connection, existing, registry, fetched_at, db_path.parent / "raw"
+                )
             items = payload.get("value", {}).get("list", [])
             if not items:
                 break
