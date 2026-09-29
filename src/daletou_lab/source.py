@@ -4,6 +4,8 @@ import json
 import os
 import re
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -38,8 +40,26 @@ def fetch_page(page_no: int, page_size: int = 100, timeout: int = 30) -> Dict[st
         f"{OFFICIAL_API}?{query}",
         headers={"User-Agent": "daletou-strategy-lab/1.0 (+public research; no gambling claims)"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.load(response)
+    retryable_statuses = {408, 429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as error:
+            if error.code == 567:
+                raise RuntimeError(
+                    "Official lottery API rejected this request with HTTP 567; "
+                    "the upstream gateway/security policy must allow this client. "
+                    "The request was not retried."
+                ) from error
+            if error.code not in retryable_statuses or attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
+        except urllib.error.URLError:
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
     if not payload.get("success"):
         raise RuntimeError(f"Official API error: {payload.get('errorMessage')}")
     return payload
@@ -140,4 +160,3 @@ def update_official(db_path: Path = DEFAULT_DB, full: bool = False, max_pages: i
                 break
             page_no += 1
     return {"inserted": inserted, "pages": page_no, "fetched_at": fetched_at, "source": OFFICIAL_SOURCE}
-
